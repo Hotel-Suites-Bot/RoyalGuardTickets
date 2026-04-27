@@ -12,29 +12,33 @@ const {
   TextInputStyle,
   EmbedBuilder,
   ChannelType,
-  PermissionsBitField
+  PermissionsBitField,
+  MessageFlags
 } = require('discord.js');
 
 const mongoose = require('mongoose');
 const { createTranscript } = require('discord-html-transcripts');
 
+// ===== SAFETY CHECK =====
+if (!process.env.MONGO_URI) {
+  console.error('❌ MONGO_URI missing');
+  process.exit(1);
+}
+
 // ===== DATABASE =====
 mongoose.connect(process.env.MONGO_URI);
 
-const ticketSchema = new mongoose.Schema({
+const Ticket = mongoose.model('Ticket', new mongoose.Schema({
   userId: String,
   channelId: String,
   type: String,
   number: Number
-});
+}));
 
-const counterSchema = new mongoose.Schema({
+const Counter = mongoose.model('Counter', new mongoose.Schema({
   type: String,
   count: Number
-});
-
-const Ticket = mongoose.model('Ticket', ticketSchema);
-const Counter = mongoose.model('Counter', counterSchema);
+}));
 
 // ===== CLIENT =====
 const client = new Client({
@@ -43,7 +47,7 @@ const client = new Client({
 
 const pendingTickets = new Map();
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
@@ -51,23 +55,54 @@ client.once('ready', () => {
 // ================= PANEL =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== 'panel') return;
 
-  if (interaction.commandName === 'panel') {
+  // ===== EMBED 1 =====
+  const infoEmbed = new EmbedBuilder()
+    .setColor(0x2b2d31)
+    .setTitle('INFORMATION & GUIDELINES')
+    .setDescription(
+      `Welcome to **British Army Support Center!**\n\n` +
+      `We're here to assist you with any questions or concerns.\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `**• Patience**\nSome tickets take time.\n\n` +
+      `**• Avoid Greetings**\nGet straight to the point.\n\n` +
+      `**• English Only**\nThis server is English-only.\n\n` +
+      `**• Be Clear**\nMore detail = faster help.\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━`
+    )
+    .setFooter({ text: process.env.FOOTER_TEXT });
 
-    const menu = new StringSelectMenuBuilder()
-      .setCustomId('ticket_select')
-      .setPlaceholder('Select Ticket Type')
-      .addOptions([
-        { label: 'Ingame Support', value: 'ingame' },
-        { label: 'Player Report', value: 'dmi' },
-        { label: 'Developer Support', value: 'dev' }
-      ]);
+  // ===== EMBED 2 =====
+  const panelEmbed = new EmbedBuilder()
+    .setColor(0x2b2d31)
+    .setTitle('British Army - Support Tickets')
+    .setDescription(`Select a category below to open a ticket.`)
+    .setFooter({ text: process.env.FOOTER_TEXT });
 
-    await interaction.reply({
-      content: 'Open a ticket:',
-      components: [new ActionRowBuilder().addComponents(menu)]
-    });
-  }
+  // ===== DROPDOWN =====
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('ticket_select')
+    .setPlaceholder('Select a ticket type')
+    .addOptions([
+      { label: 'Ingame Support', value: 'ingame' },
+      { label: 'Player Report', value: 'dmi' },
+      { label: 'Developer Support', value: 'dev' }
+    ]);
+
+  const row = new ActionRowBuilder().addComponents(menu);
+
+  // SEND PANEL TO CHANNEL
+  await interaction.channel.send({
+    embeds: [infoEmbed, panelEmbed],
+    components: [row]
+  });
+
+  // HIDE COMMAND RESPONSE
+  await interaction.reply({
+    content: 'Panel sent.',
+    flags: MessageFlags.Ephemeral
+  });
 });
 
 
@@ -126,48 +161,51 @@ client.on('interactionCreate', async interaction => {
 });
 
 
-// ================= MODAL SUBMIT → CREATE =================
+// ================= MODAL → CREATE =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isModalSubmit()) return;
   if (interaction.customId !== 'ticket_modal') return;
 
   const type = pendingTickets.get(interaction.user.id);
 
-  if (!type) {
-    return interaction.reply({ content: '❌ Error.', ephemeral: true });
-  }
-
-  // ONE TICKET CHECK
   const existing = await Ticket.findOne({ userId: interaction.user.id });
   if (existing) {
     return interaction.reply({
-      content: '❌ You already have an open ticket.',
-      ephemeral: true
+      content: '❌ You already have a ticket.',
+      flags: MessageFlags.Ephemeral
     });
   }
 
-  // COUNTER SYSTEM
   let counter = await Counter.findOne({ type });
   if (!counter) counter = await Counter.create({ type, count: 0 });
 
   counter.count++;
   await counter.save();
 
-  const ticketName = `${type}-${counter.count}`;
+  const roleMap = {
+    ingame: process.env.ROLE_INGAME,
+    dmi: process.env.ROLE_DMI,
+    dev: process.env.ROLE_DEV
+  };
 
-  let roleId;
-  if (type === 'ingame') roleId = process.env.ROLE_SUPPORT;
-  if (type === 'dmi') roleId = process.env.ROLE_DMI;
-  if (type === 'dev') roleId = process.env.ROLE_DEV;
+  const roleId = roleMap[type];
+  const role = interaction.guild.roles.cache.get(roleId);
+
+  if (!role) {
+    return interaction.reply({
+      content: '❌ Invalid role config.',
+      flags: MessageFlags.Ephemeral
+    });
+  }
 
   const channel = await interaction.guild.channels.create({
-    name: ticketName,
+    name: `${type}-${counter.count}`,
     type: ChannelType.GuildText,
     parent: process.env.CATEGORY_TICKETS,
     permissionOverwrites: [
       { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel] },
-      { id: roleId, allow: [PermissionsBitField.Flags.ViewChannel] }
+      { id: role.id, allow: [PermissionsBitField.Flags.ViewChannel] }
     ]
   });
 
@@ -178,7 +216,6 @@ client.on('interactionCreate', async interaction => {
     number: counter.count
   });
 
-  // FORMAT ANSWERS CLEANLY
   const answers = interaction.fields.fields.map((f, i) =>
     `**${i + 1}.** ${f.value}`
   ).join('\n\n');
@@ -187,10 +224,7 @@ client.on('interactionCreate', async interaction => {
     .setColor(0x2b2d31)
     .setTitle('Support Ticket')
     .setDescription(
-      `Hey ${interaction.user},\n\n` +
-      `Thank you for contacting **Grenadier Guard Support**.\n\n` +
-      `${answers}\n\n` +
-      `Please wait patiently for a response.`
+      `Hey ${interaction.user},\n\n${answers}\n\nPlease wait for support.`
     )
     .setFooter({ text: process.env.FOOTER_TEXT });
 
@@ -201,7 +235,7 @@ client.on('interactionCreate', async interaction => {
   );
 
   await channel.send({
-    content: `${interaction.user} <@&${roleId}>`,
+    content: `${interaction.user} <@&${role.id}>`,
     embeds: [embed],
     components: [buttons]
   });
@@ -210,7 +244,7 @@ client.on('interactionCreate', async interaction => {
 
   await interaction.reply({
     content: `✅ Ticket created: ${channel}`,
-    ephemeral: true
+    flags: MessageFlags.Ephemeral
   });
 });
 
@@ -219,14 +253,15 @@ client.on('interactionCreate', async interaction => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
-  const member = interaction.member;
-
   const allowed = interaction.channel.permissionOverwrites.cache.some(over =>
-    member.roles.cache.has(over.id)
+    interaction.member.roles.cache.has(over.id)
   );
 
   if (!allowed) {
-    return interaction.reply({ content: '❌ Not allowed.', ephemeral: true });
+    return interaction.reply({
+      content: '❌ Not allowed.',
+      flags: MessageFlags.Ephemeral
+    });
   }
 
   if (interaction.customId === 'claim') {
@@ -242,14 +277,13 @@ client.on('interactionCreate', async interaction => {
       ]);
 
     return interaction.reply({
-      content: 'Select role to escalate:',
+      content: 'Select role:',
       components: [new ActionRowBuilder().addComponents(menu)],
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
   }
 
   if (interaction.customId === 'close') {
-
     await interaction.reply('Saving transcript...');
 
     const transcript = await createTranscript(interaction.channel);
@@ -264,7 +298,7 @@ client.on('interactionCreate', async interaction => {
 });
 
 
-// ================= ESCALATE SELECT =================
+// ================= ESCALATE =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId !== 'escalate_select') return;

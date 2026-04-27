@@ -4,13 +4,13 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers // IMPORTANT for scanning users
   ]
 });
 
 client.commands = new Collection();
 
-// Load command
 const bgcheck = require('./commands/bgcheck');
 client.commands.set(bgcheck.name, bgcheck);
 

@@ -6,6 +6,7 @@ const {
 } = require('discord.js');
 
 const noblox = require('noblox.js');
+const axios = require('axios');
 
 module.exports = {
   name: 'bgcheck',
@@ -14,7 +15,6 @@ module.exports = {
     if (!args[0]) return message.reply('Provide a Roblox username.');
     const username = args[0];
 
-    // 🔹 Loading embed
     const loading = new EmbedBuilder()
       .setColor('#2b2d31')
       .setTitle('Background Checking')
@@ -23,32 +23,24 @@ module.exports = {
     const msg = await message.channel.send({ embeds: [loading] });
 
     try {
-      // 🔹 Basic info
       const userId = await noblox.getIdFromUsername(username);
       const info = await noblox.getPlayerInfo(userId);
 
-      // 🔹 Safe fetches
+      // 🔹 Safe stats
       let friends = [];
-      try {
-        friends = await noblox.getFriends(userId);
-      } catch {
-        friends = [];
-      }
-
-      let groups = [];
-      try {
-        groups = await noblox.getGroups(userId);
-        if (!Array.isArray(groups)) groups = [];
-      } catch (e) {
-        console.error('Groups failed:', e.message);
-        groups = [];
-      }
+      try { friends = await noblox.getFriends(userId); } catch {}
 
       let badges = [];
+      try { badges = await noblox.getPlayerBadges(userId); } catch {}
+
+      // 🔥 NEW: DIRECT GROUP FETCH (NO NOBLOX)
+      let groups = [];
       try {
-        badges = await noblox.getPlayerBadges(userId);
-      } catch {
-        badges = [];
+        const res = await axios.get(`https://groups.roblox.com/v1/users/${userId}/groups/roles`);
+        groups = res.data.data || [];
+      } catch (e) {
+        console.error('Group API failed:', e.message);
+        groups = [];
       }
 
       const avatar = `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
@@ -56,17 +48,18 @@ module.exports = {
 
       // 🔹 Flag system
       const flaggedNames = ['British Army', 'BBA', 'LBA'];
-
       const flaggedSet = new Set();
 
       const formattedGroups = groups.map(g => {
-        const isFlagged = flaggedNames.some(name =>
-          g.name.toLowerCase().includes(name.toLowerCase())
+        const name = g.group.name;
+
+        const isFlagged = flaggedNames.some(flag =>
+          name.toLowerCase().includes(flag.toLowerCase())
         );
 
-        if (isFlagged) flaggedSet.add(g.name);
+        if (isFlagged) flaggedSet.add(name);
 
-        return `${isFlagged ? '⚠️' : '•'} ${g.name} (Owner: ${g.owner?.username || 'Unknown'})`;
+        return `${isFlagged ? '⚠️' : '•'} ${name} (Role: ${g.role.name})`;
       });
 
       // 🔹 Pagination
@@ -79,10 +72,7 @@ module.exports = {
 
       let page = 0;
 
-      // 🔹 Embed builder
       const buildEmbed = () => {
-
-        // MAIN PAGE
         if (page === 0) {
           return new EmbedBuilder()
             .setColor('#2b2d31')
@@ -108,7 +98,6 @@ module.exports = {
             .setFooter({ text: `Page 1/${groupPages.length + 1}` });
         }
 
-        // GROUP PAGES
         const current = groupPages[page - 1] || [];
 
         return new EmbedBuilder()
@@ -118,46 +107,25 @@ module.exports = {
           .setFooter({ text: `Page ${page + 1}/${groupPages.length + 1}` });
       };
 
-      // 🔹 Buttons
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('prev')
-          .setLabel('⬅️')
-          .setStyle(ButtonStyle.Secondary),
-
-        new ButtonBuilder()
-          .setCustomId('next')
-          .setLabel('➡️')
-          .setStyle(ButtonStyle.Secondary),
-
-        new ButtonBuilder()
-          .setCustomId('delete')
-          .setLabel('🗑️')
-          .setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('prev').setLabel('⬅️').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('next').setLabel('➡️').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('delete').setLabel('🗑️').setStyle(ButtonStyle.Danger)
       );
 
-      // 🔹 Send final
       await msg.edit({
         embeds: [buildEmbed()],
         components: [row]
       });
 
-      const collector = msg.createMessageComponentCollector({
-        time: 120000
-      });
+      const collector = msg.createMessageComponentCollector({ time: 120000 });
 
       collector.on('collect', async i => {
-        if (i.user.id !== message.author.id) {
+        if (i.user.id !== message.author.id)
           return i.reply({ content: 'Not your session.', ephemeral: true });
-        }
 
-        if (i.customId === 'next') {
-          page = page >= groupPages.length ? 0 : page + 1;
-        }
-
-        if (i.customId === 'prev') {
-          page = page <= 0 ? groupPages.length : page - 1;
-        }
+        if (i.customId === 'next') page = page >= groupPages.length ? 0 : page + 1;
+        if (i.customId === 'prev') page = page <= 0 ? groupPages.length : page - 1;
 
         if (i.customId === 'delete') {
           collector.stop();
@@ -176,7 +144,6 @@ module.exports = {
 
     } catch (err) {
       console.error(err);
-
       msg.edit({
         content: '❌ Failed to fetch Roblox data.',
         embeds: []

@@ -146,11 +146,11 @@ client.on('interactionCreate', async interaction => {
     ];
   }
 
-  const rows = questions.map((q, i) =>
+  const rows = questions.map((question, i) =>
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId(`q${i}`)
-        .setLabel(q)
+        .setLabel(Question)
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
     )

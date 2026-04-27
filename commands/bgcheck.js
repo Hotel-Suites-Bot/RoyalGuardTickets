@@ -1,10 +1,4 @@
-const {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
-} = require('discord.js');
-
+const { EmbedBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 const axios = require('axios');
 
@@ -16,9 +10,9 @@ module.exports = {
     const username = args[0];
 
     const loading = new EmbedBuilder()
-      .setColor('#2b2d31')
-      .setTitle('Background Checking')
-      .setDescription('Please hold on while we background check the user.');
+      .setColor('#1e1f22')
+      .setTitle('🔎 Background Checking')
+      .setDescription('Please wait while we gather intelligence...');
 
     const msg = await message.channel.send({ embeds: [loading] });
 
@@ -26,22 +20,18 @@ module.exports = {
       const userId = await noblox.getIdFromUsername(username);
       const info = await noblox.getPlayerInfo(userId);
 
-      // 🔹 Safe stats
       let friends = [];
       try { friends = await noblox.getFriends(userId); } catch {}
 
       let badges = [];
       try { badges = await noblox.getPlayerBadges(userId); } catch {}
 
-      // 🔥 NEW: DIRECT GROUP FETCH (NO NOBLOX)
+      // 🔥 Direct API groups (stable)
       let groups = [];
       try {
         const res = await axios.get(`https://groups.roblox.com/v1/users/${userId}/groups/roles`);
         groups = res.data.data || [];
-      } catch (e) {
-        console.error('Group API failed:', e.message);
-        groups = [];
-      }
+      } catch {}
 
       const avatar = `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
       const profile = `https://www.roblox.com/users/${userId}/profile`;
@@ -53,16 +43,16 @@ module.exports = {
       const formattedGroups = groups.map(g => {
         const name = g.group.name;
 
-        const isFlagged = flaggedNames.some(flag =>
-          name.toLowerCase().includes(flag.toLowerCase())
+        const flagged = flaggedNames.some(f =>
+          name.toLowerCase().includes(f.toLowerCase())
         );
 
-        if (isFlagged) flaggedSet.add(name);
+        if (flagged) flaggedSet.add(name);
 
-        return `${isFlagged ? '⚠️' : '•'} ${name} (Role: ${g.role.name})`;
+        return `${flagged ? '⚠️' : '•'} ${name} — ${g.role.name}`;
       });
 
-      // 🔹 Pagination
+      // 🔹 Split groups into pages
       const chunkSize = 10;
       const groupPages = [];
 
@@ -72,28 +62,33 @@ module.exports = {
 
       let page = 0;
 
+      // 🔹 Embed builder (PROFESSIONAL STYLE)
       const buildEmbed = () => {
+
         if (page === 0) {
           return new EmbedBuilder()
-            .setColor('#2b2d31')
+            .setColor('#1e1f22')
             .setAuthor({ name: username, iconURL: avatar })
             .setThumbnail(avatar)
-            .setDescription('**Roblox Background Check**')
-            .addFields(
-              { name: 'Username', value: username, inline: true },
-              { name: 'Profile', value: `[Open Profile](${profile})`, inline: true },
-              { name: 'Created', value: new Date(info.joinDate).toUTCString() },
+            .setDescription(
+              `**BACKGROUND CHECK REPORT**\n` +
+              `━━━━━━━━━━━━━━━━━━\n` +
+              `**Profile:** [View Profile](${profile})\n` +
+              `**Created:** ${new Date(info.joinDate).toUTCString()}\n\n` +
 
-              { name: 'Friends', value: `${friends.length}`, inline: true },
-              { name: 'Badges', value: `${badges.length}`, inline: true },
-              { name: 'Groups', value: `${groups.length}`, inline: true },
+              `**STATISTICS**\n` +
+              `━━━━━━━━━━━━━━━━━━\n` +
+              `• Friends: ${friends.length}\n` +
+              `• Badges: ${badges.length}\n` +
+              `• Groups: ${groups.length}\n\n` +
 
-              {
-                name: 'Alerts',
-                value: flaggedSet.size > 0
-                  ? `⚠️ User is in ${flaggedSet.size} flagged group(s)`
-                  : '✅ No flagged groups detected'
-              }
+              `**ALERT STATUS**\n` +
+              `━━━━━━━━━━━━━━━━━━\n` +
+              (
+                flaggedSet.size > 0
+                  ? `⚠️ Detected in ${flaggedSet.size} flagged group(s)`
+                  : `✅ No threats detected`
+              )
             )
             .setFooter({ text: `Page 1/${groupPages.length + 1}` });
         }
@@ -101,45 +96,52 @@ module.exports = {
         const current = groupPages[page - 1] || [];
 
         return new EmbedBuilder()
-          .setColor('#2b2d31')
-          .setTitle(`Groups (Page ${page}/${groupPages.length})`)
-          .setDescription(current.join('\n') || 'No groups found.')
+          .setColor('#1e1f22')
+          .setTitle(`📁 GROUP AFFILIATIONS`)
+          .setDescription(
+            `━━━━━━━━━━━━━━━━━━\n` +
+            (current.join('\n') || 'No groups found.')
+          )
           .setFooter({ text: `Page ${page + 1}/${groupPages.length + 1}` });
       };
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('prev').setLabel('⬅️').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('next').setLabel('➡️').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('delete').setLabel('🗑️').setStyle(ButtonStyle.Danger)
-      );
+      // 🔹 Send final embed
+      await msg.edit({ embeds: [buildEmbed()] });
 
-      await msg.edit({
-        embeds: [buildEmbed()],
-        components: [row]
+      // 🔹 Add reactions
+      await msg.react('⬅️');
+      await msg.react('➡️');
+      await msg.react('🗑️');
+
+      // 🔹 Reaction collector
+      const collector = msg.createReactionCollector({
+        time: 120000
       });
 
-      const collector = msg.createMessageComponentCollector({ time: 120000 });
+      collector.on('collect', async (reaction, user) => {
+        if (user.id !== message.author.id) return;
 
-      collector.on('collect', async i => {
-        if (i.user.id !== message.author.id)
-          return i.reply({ content: 'Not your session.', ephemeral: true });
+        if (reaction.emoji.name === '➡️') {
+          page = page >= groupPages.length ? 0 : page + 1;
+        }
 
-        if (i.customId === 'next') page = page >= groupPages.length ? 0 : page + 1;
-        if (i.customId === 'prev') page = page <= 0 ? groupPages.length : page - 1;
+        if (reaction.emoji.name === '⬅️') {
+          page = page <= 0 ? groupPages.length : page - 1;
+        }
 
-        if (i.customId === 'delete') {
+        if (reaction.emoji.name === '🗑️') {
           collector.stop();
           return msg.delete().catch(() => {});
         }
 
-        await i.update({
-          embeds: [buildEmbed()],
-          components: [row]
-        });
+        await msg.edit({ embeds: [buildEmbed()] });
+
+        // remove user reaction (keeps it clean)
+        await reaction.users.remove(user.id);
       });
 
       collector.on('end', () => {
-        msg.edit({ components: [] }).catch(() => {});
+        msg.reactions.removeAll().catch(() => {});
       });
 
     } catch (err) {

@@ -41,7 +41,7 @@ module.exports = {
       let badges = [];
       try { badges = await noblox.getPlayerBadges(userId); } catch {}
 
-      // 🔹 Groups (API)
+      // 🔹 Groups
       let groups = [];
       try {
         const res = await axios.get(`https://groups.roblox.com/v1/users/${userId}/groups/roles`);
@@ -68,13 +68,25 @@ module.exports = {
       const member = message.guild.members.cache.find(m => {
         const nick = m.nickname?.toLowerCase() || '';
         const user = m.user.username.toLowerCase();
-
         return nick.includes(username) || user.includes(username);
       });
 
-      const discordInfo = member
-        ? `User: ${member.user.tag}\nJoined: ${new Date(member.joinedAt).toUTCString()}`
-        : 'No linked Discord user found';
+      let roles = 'None';
+      let createdAt = 'Unknown';
+      let joinedAt = 'Unknown';
+      let discordUser = 'No match found';
+
+      if (member) {
+        roles = member.roles.cache
+          .filter(r => r.name !== '@everyone')
+          .map(r => `<@&${r.id}>`)
+          .slice(0, 10)
+          .join(', ') || 'None';
+
+        createdAt = new Date(member.user.createdAt).toUTCString();
+        joinedAt = new Date(member.joinedAt).toUTCString();
+        discordUser = member.user.tag;
+      }
 
       // 🔹 Pagination
       const chunkSize = 10;
@@ -86,10 +98,9 @@ module.exports = {
 
       let page = 0;
 
-      // 🔹 Embed builder (MATCHES YOUR STYLE)
+      // 🔹 Embed Builder
       const buildEmbed = () => {
 
-        // MAIN PAGE
         if (page === 0) {
           return new EmbedBuilder()
             .setColor('#1e1f22')
@@ -99,12 +110,16 @@ module.exports = {
               `**USER INTELLIGENCE REPORT**\n` +
               `━━━━━━━━━━━━━━━━━━\n\n` +
 
-              `**DISCORD RECORD**\n` +
+              `**DISCORD INFORMATION**\n` +
               `━━━━━━━━━━━━━━━━━━\n` +
-              `${discordInfo}\n\n` +
+              `User: ${discordUser}\n` +
+              `Created: ${createdAt}\n` +
+              `Joined Server: ${joinedAt}\n` +
+              `Roles: ${roles}\n\n` +
 
-              `**ROBLOX ACCOUNT**\n` +
+              `**ROBLOX INFORMATION**\n` +
               `━━━━━━━━━━━━━━━━━━\n` +
+              `Username: ${info.username}\n` +
               `Profile: ${profile}\n` +
               `Created: ${new Date(info.joinDate).toUTCString()}\n\n` +
 
@@ -125,7 +140,6 @@ module.exports = {
             .setFooter({ text: `Page 1/${groupPages.length + 1}` });
         }
 
-        // GROUP PAGES
         const current = groupPages[page - 1] || [];
 
         return new EmbedBuilder()

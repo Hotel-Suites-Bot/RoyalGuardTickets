@@ -146,7 +146,7 @@ client.on('interactionCreate', async interaction => {
     ];
   }
 
-  const rows = questions.map((question, i) =>
+  const rows = questions.map((q, i) =>
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId(`q${i}`)
@@ -216,9 +216,9 @@ client.on('interactionCreate', async interaction => {
     number: counter.count
   });
 
-  const answers = interaction.fields.fields.map((f, i) =>
-    `**${i + 1}.** ${f.value}`
-  ).join('\n\n');
+const answers = interaction.fields.fields.map((f, i) =>
+  `> **Question ${i + 1}**\n${f.value}`
+).join('\n\n');
 
   const embed = new EmbedBuilder()
     .setColor(0x2b2d31)

@@ -7,36 +7,42 @@ module.exports = {
 
   async execute(message, args) {
     if (!args[0]) return message.reply('Provide a Roblox username.');
-    const username = args[0];
+    const username = args[0].toLowerCase();
 
     const loading = new EmbedBuilder()
       .setColor('#1e1f22')
       .setTitle('🔎 Background Checking')
-      .setDescription('Please wait while we gather intelligence...');
+      .setDescription('Scanning Roblox & Discord records...');
 
     const msg = await message.channel.send({ embeds: [loading] });
 
     try {
+      // 🔹 Roblox data
       const userId = await noblox.getIdFromUsername(username);
       const info = await noblox.getPlayerInfo(userId);
 
-      let friends = [];
-      try { friends = await noblox.getFriends(userId); } catch {}
+      const avatar = `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
+      const profile = `https://www.roblox.com/users/${userId}/profile`;
 
+      // 🔹 Friends (fixed)
+      let friendsCount = 0;
+      try {
+        const res = await axios.get(`https://friends.roblox.com/v1/users/${userId}/friends/count`);
+        friendsCount = res.data.count || 0;
+      } catch {}
+
+      // 🔹 Badges
       let badges = [];
       try { badges = await noblox.getPlayerBadges(userId); } catch {}
 
-      // 🔥 Direct API groups (stable)
+      // 🔹 Groups (stable API)
       let groups = [];
       try {
         const res = await axios.get(`https://groups.roblox.com/v1/users/${userId}/groups/roles`);
         groups = res.data.data || [];
       } catch {}
 
-      const avatar = `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
-      const profile = `https://www.roblox.com/users/${userId}/profile`;
-
-      // 🔹 Flag system
+      // 🔹 FLAG SYSTEM
       const flaggedNames = ['British Army', 'BBA', 'LBA'];
       const flaggedSet = new Set();
 
@@ -52,7 +58,25 @@ module.exports = {
         return `${flagged ? '⚠️' : '•'} ${name} — ${g.role.name}`;
       });
 
-      // 🔹 Split groups into pages
+      // 🔹 DISCORD MATCHING SYSTEM
+      await message.guild.members.fetch(); // cache all members
+
+      const member = message.guild.members.cache.find(m => {
+        const nick = m.nickname ? m.nickname.toLowerCase() : '';
+        const user = m.user.username.toLowerCase();
+
+        return (
+          nick.includes(username) ||
+          user.includes(username)
+        );
+      });
+
+      let discordMatch = '❌ No matching Discord user found';
+      if (member) {
+        discordMatch = `✅ ${member.user.tag}`;
+      }
+
+      // 🔹 PAGINATION
       const chunkSize = 10;
       const groupPages = [];
 
@@ -62,13 +86,12 @@ module.exports = {
 
       let page = 0;
 
-      // 🔹 Embed builder (PROFESSIONAL STYLE)
       const buildEmbed = () => {
 
         if (page === 0) {
           return new EmbedBuilder()
             .setColor('#1e1f22')
-            .setAuthor({ name: username, iconURL: avatar })
+            .setAuthor({ name: info.username })
             .setThumbnail(avatar)
             .setDescription(
               `**BACKGROUND CHECK REPORT**\n` +
@@ -76,9 +99,13 @@ module.exports = {
               `**Profile:** [View Profile](${profile})\n` +
               `**Created:** ${new Date(info.joinDate).toUTCString()}\n\n` +
 
+              `**DISCORD MATCH**\n` +
+              `━━━━━━━━━━━━━━━━━━\n` +
+              `${discordMatch}\n\n` +
+
               `**STATISTICS**\n` +
               `━━━━━━━━━━━━━━━━━━\n` +
-              `• Friends: ${friends.length}\n` +
+              `• Friends: ${friendsCount}\n` +
               `• Badges: ${badges.length}\n` +
               `• Groups: ${groups.length}\n\n` +
 
@@ -97,7 +124,7 @@ module.exports = {
 
         return new EmbedBuilder()
           .setColor('#1e1f22')
-          .setTitle(`📁 GROUP AFFILIATIONS`)
+          .setTitle('📁 GROUP AFFILIATIONS')
           .setDescription(
             `━━━━━━━━━━━━━━━━━━\n` +
             (current.join('\n') || 'No groups found.')
@@ -105,18 +132,14 @@ module.exports = {
           .setFooter({ text: `Page ${page + 1}/${groupPages.length + 1}` });
       };
 
-      // 🔹 Send final embed
       await msg.edit({ embeds: [buildEmbed()] });
 
-      // 🔹 Add reactions
+      // 🔹 Reactions
       await msg.react('⬅️');
       await msg.react('➡️');
       await msg.react('🗑️');
 
-      // 🔹 Reaction collector
-      const collector = msg.createReactionCollector({
-        time: 120000
-      });
+      const collector = msg.createReactionCollector({ time: 120000 });
 
       collector.on('collect', async (reaction, user) => {
         if (user.id !== message.author.id) return;
@@ -135,8 +158,6 @@ module.exports = {
         }
 
         await msg.edit({ embeds: [buildEmbed()] });
-
-        // remove user reaction (keeps it clean)
         await reaction.users.remove(user.id);
       });
 

@@ -19,12 +19,6 @@ const {
 const mongoose = require('mongoose');
 const { createTranscript } = require('discord-html-transcripts');
 
-// ===== SAFETY CHECK =====
-if (!process.env.MONGO_URI) {
-  console.error('❌ MONGO_URI missing');
-  process.exit(1);
-}
-
 // ===== DATABASE =====
 mongoose.connect(process.env.MONGO_URI);
 
@@ -52,18 +46,38 @@ client.once('clientReady', () => {
 });
 
 
+// ================= QUESTIONS MAP =================
+const questionsMap = {
+  ingame: [
+    'What is your Roblox username?',
+    'Main Game or Parade Grounds?',
+    'What is the inquiry or assistance you need?'
+  ],
+  dmi: [
+    'Their Roblox Username And Rank / Regiment If Any',
+    'Your Username and Rank',
+    'Full in-depth detail of the incident.',
+    'Any evidence or proof to back up your story if so send in ticket.'
+  ],
+  dev: [
+    'Your Roblox Username and Rank / Regiment If Any?',
+    'Main Game or Parade Grounds?',
+    'What is the issue?',
+    'Any evidence?'
+  ]
+};
+
+
 // ================= PANEL =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== 'panel') return;
 
-  // ===== EMBED 1 =====
   const infoEmbed = new EmbedBuilder()
     .setColor(0x2b2d31)
     .setTitle('INFORMATION & GUIDELINES')
     .setDescription(
       `Welcome to **British Army Support Center!**\n\n` +
-      `We're here to assist you with any questions or concerns.\n\n` +
       `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
       `**• Patience**\nSome tickets take time.\n\n` +
       `**• Avoid Greetings**\nGet straight to the point.\n\n` +
@@ -73,14 +87,12 @@ client.on('interactionCreate', async interaction => {
     )
     .setFooter({ text: process.env.FOOTER_TEXT });
 
-  // ===== EMBED 2 =====
   const panelEmbed = new EmbedBuilder()
     .setColor(0x2b2d31)
     .setTitle('British Army - Support Tickets')
     .setDescription(`Select a category below to open a ticket.`)
     .setFooter({ text: process.env.FOOTER_TEXT });
 
-  // ===== DROPDOWN =====
   const menu = new StringSelectMenuBuilder()
     .setCustomId('ticket_select')
     .setPlaceholder('Select a ticket type')
@@ -90,15 +102,11 @@ client.on('interactionCreate', async interaction => {
       { label: 'Developer Support', value: 'dev' }
     ]);
 
-  const row = new ActionRowBuilder().addComponents(menu);
-
-  // SEND PANEL TO CHANNEL
   await interaction.channel.send({
     embeds: [infoEmbed, panelEmbed],
-    components: [row]
+    components: [new ActionRowBuilder().addComponents(menu)]
   });
 
-  // HIDE COMMAND RESPONSE
   await interaction.reply({
     content: 'Panel sent.',
     flags: MessageFlags.Ephemeral
@@ -118,39 +126,13 @@ client.on('interactionCreate', async interaction => {
     .setCustomId('ticket_modal')
     .setTitle('Support Questions');
 
-  let questions = [];
-
-  if (type === 'ingame') {
-    questions = [
-      'What is your Roblox username?',
-      'Main Game or Parade Grounds?',
-      'What is the inquiry or assistance you need?'
-    ];
-  }
-
-  if (type === 'dmi') {
-    questions = [
-      'Their Roblox Username And Rank / Regiment If Any',
-      'Your Username and Rank',
-      'Full in-depth detail of the incident.',
-      'Any evidence or proof to back up your story if so send in ticket.'
-    ];
-  }
-
-  if (type === 'dev') {
-    questions = [
-      'Your Roblox Username and Rank / Regiment If Any?',
-      'Main Game or Parade Grounds?',
-      'What is the issue?',
-      'Any evidence?'
-    ];
-  }
+  const questions = questionsMap[type];
 
   const rows = questions.map((q, i) =>
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId(`q${i}`)
-        .setLabel(Question)
+        .setLabel(q) // ✅ FIXED
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
     )
@@ -188,8 +170,7 @@ client.on('interactionCreate', async interaction => {
     dev: process.env.ROLE_DEV
   };
 
-  const roleId = roleMap[type];
-  const role = interaction.guild.roles.cache.get(roleId);
+  const role = interaction.guild.roles.cache.get(roleMap[type]);
 
   if (!role) {
     return interaction.reply({
@@ -216,9 +197,11 @@ client.on('interactionCreate', async interaction => {
     number: counter.count
   });
 
-const answers = interaction.fields.fields.map((f, i) =>
-  `> **Question ${i + 1}**\n${f.value}`
-).join('\n\n');
+  // ✅ CLEAN ANSWERS WITH REAL QUESTIONS
+  const answers = questionsMap[type].map((q, i) => {
+    const value = interaction.fields.getTextInputValue(`q${i}`);
+    return `> **${q}**\n${value}`;
+  }).join('\n\n');
 
   const embed = new EmbedBuilder()
     .setColor(0x2b2d31)

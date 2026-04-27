@@ -1,4 +1,10 @@
-const { EmbedBuilder } = require('discord.js');
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require('discord.js');
+
 const noblox = require('noblox.js');
 const axios = require('axios');
 
@@ -11,20 +17,20 @@ module.exports = {
 
     const loading = new EmbedBuilder()
       .setColor('#1e1f22')
-      .setTitle('🔎 Background Checking')
-      .setDescription('Scanning Roblox & Discord records...');
+      .setTitle('Background Checking')
+      .setDescription('Gathering intelligence...');
 
     const msg = await message.channel.send({ embeds: [loading] });
 
     try {
-      // 🔹 Roblox data
+      // 🔹 Roblox
       const userId = await noblox.getIdFromUsername(username);
       const info = await noblox.getPlayerInfo(userId);
 
       const avatar = `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
       const profile = `https://www.roblox.com/users/${userId}/profile`;
 
-      // 🔹 Friends (fixed)
+      // 🔹 Friends count (stable)
       let friendsCount = 0;
       try {
         const res = await axios.get(`https://friends.roblox.com/v1/users/${userId}/friends/count`);
@@ -35,48 +41,42 @@ module.exports = {
       let badges = [];
       try { badges = await noblox.getPlayerBadges(userId); } catch {}
 
-      // 🔹 Groups (stable API)
+      // 🔹 Groups (API)
       let groups = [];
       try {
         const res = await axios.get(`https://groups.roblox.com/v1/users/${userId}/groups/roles`);
         groups = res.data.data || [];
       } catch {}
 
-      // 🔹 FLAG SYSTEM
+      // 🔹 Flag detection
       const flaggedNames = ['British Army', 'BBA', 'LBA'];
       const flaggedSet = new Set();
 
       const formattedGroups = groups.map(g => {
         const name = g.group.name;
-
         const flagged = flaggedNames.some(f =>
           name.toLowerCase().includes(f.toLowerCase())
         );
-
         if (flagged) flaggedSet.add(name);
 
         return `${flagged ? '⚠️' : '•'} ${name} — ${g.role.name}`;
       });
 
-      // 🔹 DISCORD MATCHING SYSTEM
-      await message.guild.members.fetch(); // cache all members
+      // 🔹 Discord match
+      await message.guild.members.fetch();
 
       const member = message.guild.members.cache.find(m => {
-        const nick = m.nickname ? m.nickname.toLowerCase() : '';
+        const nick = m.nickname?.toLowerCase() || '';
         const user = m.user.username.toLowerCase();
 
-        return (
-          nick.includes(username) ||
-          user.includes(username)
-        );
+        return nick.includes(username) || user.includes(username);
       });
 
-      let discordMatch = '❌ No matching Discord user found';
-      if (member) {
-        discordMatch = `✅ ${member.user.tag}`;
-      }
+      const discordInfo = member
+        ? `User: ${member.user.tag}\nJoined: ${new Date(member.joinedAt).toUTCString()}`
+        : 'No linked Discord user found';
 
-      // 🔹 PAGINATION
+      // 🔹 Pagination
       const chunkSize = 10;
       const groupPages = [];
 
@@ -86,45 +86,51 @@ module.exports = {
 
       let page = 0;
 
+      // 🔹 Embed builder (MATCHES YOUR STYLE)
       const buildEmbed = () => {
 
+        // MAIN PAGE
         if (page === 0) {
           return new EmbedBuilder()
             .setColor('#1e1f22')
             .setAuthor({ name: info.username })
             .setThumbnail(avatar)
             .setDescription(
-              `**BACKGROUND CHECK REPORT**\n` +
-              `━━━━━━━━━━━━━━━━━━\n` +
-              `**Profile:** [View Profile](${profile})\n` +
-              `**Created:** ${new Date(info.joinDate).toUTCString()}\n\n` +
+              `**USER INTELLIGENCE REPORT**\n` +
+              `━━━━━━━━━━━━━━━━━━\n\n` +
 
-              `**DISCORD MATCH**\n` +
+              `**DISCORD RECORD**\n` +
               `━━━━━━━━━━━━━━━━━━\n` +
-              `${discordMatch}\n\n` +
+              `${discordInfo}\n\n` +
 
-              `**STATISTICS**\n` +
+              `**ROBLOX ACCOUNT**\n` +
               `━━━━━━━━━━━━━━━━━━\n` +
-              `• Friends: ${friendsCount}\n` +
-              `• Badges: ${badges.length}\n` +
-              `• Groups: ${groups.length}\n\n` +
+              `Profile: ${profile}\n` +
+              `Created: ${new Date(info.joinDate).toUTCString()}\n\n` +
+
+              `**ACCOUNT STATISTICS**\n` +
+              `━━━━━━━━━━━━━━━━━━\n` +
+              `Friends: ${friendsCount}\n` +
+              `Badges: ${badges.length}\n` +
+              `Groups: ${groups.length}\n\n` +
 
               `**ALERT STATUS**\n` +
               `━━━━━━━━━━━━━━━━━━\n` +
               (
                 flaggedSet.size > 0
-                  ? `⚠️ Detected in ${flaggedSet.size} flagged group(s)`
-                  : `✅ No threats detected`
+                  ? `⚠️ Flagged Groups Detected (${flaggedSet.size})`
+                  : `✅ No Threats Detected`
               )
             )
             .setFooter({ text: `Page 1/${groupPages.length + 1}` });
         }
 
+        // GROUP PAGES
         const current = groupPages[page - 1] || [];
 
         return new EmbedBuilder()
           .setColor('#1e1f22')
-          .setTitle('📁 GROUP AFFILIATIONS')
+          .setTitle('GROUP INTELLIGENCE')
           .setDescription(
             `━━━━━━━━━━━━━━━━━━\n` +
             (current.join('\n') || 'No groups found.')
@@ -132,37 +138,53 @@ module.exports = {
           .setFooter({ text: `Page ${page + 1}/${groupPages.length + 1}` });
       };
 
-      await msg.edit({ embeds: [buildEmbed()] });
+      // 🔹 Buttons
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('prev')
+          .setLabel('⬅')
+          .setStyle(ButtonStyle.Secondary),
 
-      // 🔹 Reactions
-      await msg.react('⬅️');
-      await msg.react('➡️');
-      await msg.react('🗑️');
+        new ButtonBuilder()
+          .setCustomId('next')
+          .setLabel('➡')
+          .setStyle(ButtonStyle.Secondary),
 
-      const collector = msg.createReactionCollector({ time: 120000 });
+        new ButtonBuilder()
+          .setCustomId('delete')
+          .setLabel('✖')
+          .setStyle(ButtonStyle.Danger)
+      );
 
-      collector.on('collect', async (reaction, user) => {
-        if (user.id !== message.author.id) return;
+      await msg.edit({
+        embeds: [buildEmbed()],
+        components: [row]
+      });
 
-        if (reaction.emoji.name === '➡️') {
-          page = page >= groupPages.length ? 0 : page + 1;
-        }
+      const collector = msg.createMessageComponentCollector({
+        time: 120000
+      });
 
-        if (reaction.emoji.name === '⬅️') {
-          page = page <= 0 ? groupPages.length : page - 1;
-        }
+      collector.on('collect', async i => {
+        if (i.user.id !== message.author.id)
+          return i.reply({ content: 'Not your session.', ephemeral: true });
 
-        if (reaction.emoji.name === '🗑️') {
+        if (i.customId === 'next') page = page >= groupPages.length ? 0 : page + 1;
+        if (i.customId === 'prev') page = page <= 0 ? groupPages.length : page - 1;
+
+        if (i.customId === 'delete') {
           collector.stop();
           return msg.delete().catch(() => {});
         }
 
-        await msg.edit({ embeds: [buildEmbed()] });
-        await reaction.users.remove(user.id);
+        await i.update({
+          embeds: [buildEmbed()],
+          components: [row]
+        });
       });
 
       collector.on('end', () => {
-        msg.reactions.removeAll().catch(() => {});
+        msg.edit({ components: [] }).catch(() => {});
       });
 
     } catch (err) {

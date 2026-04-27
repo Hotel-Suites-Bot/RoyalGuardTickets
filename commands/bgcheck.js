@@ -4,6 +4,7 @@ const {
   ButtonBuilder,
   ButtonStyle
 } = require('discord.js');
+
 const noblox = require('noblox.js');
 
 module.exports = {
@@ -13,7 +14,7 @@ module.exports = {
     if (!args[0]) return message.reply('Provide a Roblox username.');
     const username = args[0];
 
-    // 🔹 Loading
+    // 🔹 Loading embed
     const loading = new EmbedBuilder()
       .setColor('#2b2d31')
       .setTitle('Background Checking')
@@ -22,20 +23,42 @@ module.exports = {
     const msg = await message.channel.send({ embeds: [loading] });
 
     try {
-      // 🔹 Roblox fetch
+      // 🔹 Basic info
       const userId = await noblox.getIdFromUsername(username);
       const info = await noblox.getPlayerInfo(userId);
-      const friends = await noblox.getFriends(userId);
-      const groups = await noblox.getGroups(userId);
-      const badges = await noblox.getPlayerBadges(userId);
+
+      // 🔹 Safe fetches
+      let friends = [];
+      try {
+        friends = await noblox.getFriends(userId);
+      } catch {
+        friends = [];
+      }
+
+      let groups = [];
+      try {
+        groups = await noblox.getGroups(userId);
+        if (!Array.isArray(groups)) groups = [];
+      } catch (e) {
+        console.error('Groups failed:', e.message);
+        groups = [];
+      }
+
+      let badges = [];
+      try {
+        badges = await noblox.getPlayerBadges(userId);
+      } catch {
+        badges = [];
+      }
 
       const avatar = `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
       const profile = `https://www.roblox.com/users/${userId}/profile`;
 
-      // 🔹 Flag filter
+      // 🔹 Flag system
       const flaggedNames = ['British Army', 'BBA', 'LBA'];
 
       const flaggedSet = new Set();
+
       const formattedGroups = groups.map(g => {
         const isFlagged = flaggedNames.some(name =>
           g.name.toLowerCase().includes(name.toLowerCase())
@@ -46,7 +69,7 @@ module.exports = {
         return `${isFlagged ? '⚠️' : '•'} ${g.name} (Owner: ${g.owner?.username || 'Unknown'})`;
       });
 
-      // 🔹 Pagination setup
+      // 🔹 Pagination
       const chunkSize = 10;
       const groupPages = [];
 
@@ -54,18 +77,18 @@ module.exports = {
         groupPages.push(formattedGroups.slice(i, i + chunkSize));
       }
 
-      let page = 0; // 0 = main page
+      let page = 0;
 
-      // 🔹 Build embed
+      // 🔹 Embed builder
       const buildEmbed = () => {
 
-        // PAGE 0 (MAIN)
+        // MAIN PAGE
         if (page === 0) {
           return new EmbedBuilder()
             .setColor('#2b2d31')
             .setAuthor({ name: username, iconURL: avatar })
             .setThumbnail(avatar)
-            .setDescription(`**Roblox Background Check**`)
+            .setDescription('**Roblox Background Check**')
             .addFields(
               { name: 'Username', value: username, inline: true },
               { name: 'Profile', value: `[Open Profile](${profile})`, inline: true },
@@ -119,7 +142,9 @@ module.exports = {
         components: [row]
       });
 
-      const collector = msg.createMessageComponentCollector({ time: 120000 });
+      const collector = msg.createMessageComponentCollector({
+        time: 120000
+      });
 
       collector.on('collect', async i => {
         if (i.user.id !== message.author.id) {
@@ -151,6 +176,7 @@ module.exports = {
 
     } catch (err) {
       console.error(err);
+
       msg.edit({
         content: '❌ Failed to fetch Roblox data.',
         embeds: []

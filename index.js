@@ -18,7 +18,7 @@ const {
 const mongoose = require('mongoose');
 const { createTranscript } = require('discord-html-transcripts');
 
-// ===== MONGO =====
+// ===== DATABASE =====
 mongoose.connect(process.env.MONGO_URI);
 
 const ticketSchema = new mongoose.Schema({
@@ -41,11 +41,14 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
+const pendingTickets = new Map();
+
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// ===== PANEL =====
+
+// ================= PANEL =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -56,7 +59,7 @@ client.on('interactionCreate', async interaction => {
       .setPlaceholder('Select Ticket Type')
       .addOptions([
         { label: 'Ingame Support', value: 'ingame' },
-        { label: 'DMI Request', value: 'dmi' },
+        { label: 'Player Report', value: 'dmi' },
         { label: 'Developer Support', value: 'dev' }
       ]);
 
@@ -67,12 +70,72 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ===== CREATE TICKET =====
+
+// ================= SELECT → MODAL =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId !== 'ticket_select') return;
 
   const type = interaction.values[0];
+  pendingTickets.set(interaction.user.id, type);
+
+  const modal = new ModalBuilder()
+    .setCustomId('ticket_modal')
+    .setTitle('Support Questions');
+
+  let questions = [];
+
+  if (type === 'ingame') {
+    questions = [
+      'What is your Roblox username?',
+      'Main Game or Parade Grounds?',
+      'What is the inquiry or assistance you need?'
+    ];
+  }
+
+  if (type === 'dmi') {
+    questions = [
+      'Their Roblox Username And Rank / Regiment If Any',
+      'Your Username and Rank',
+      'Full in-depth detail of the incident.',
+      'Any evidence or proof to back up your story if so send in ticket.'
+    ];
+  }
+
+  if (type === 'dev') {
+    questions = [
+      'Your Roblox Username and Rank / Regiment If Any?',
+      'Main Game or Parade Grounds?',
+      'What is the issue?',
+      'Any evidence?'
+    ];
+  }
+
+  const rows = questions.map((q, i) =>
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId(`q${i}`)
+        .setLabel(q)
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+    )
+  );
+
+  modal.addComponents(rows);
+  await interaction.showModal(modal);
+});
+
+
+// ================= MODAL SUBMIT → CREATE =================
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isModalSubmit()) return;
+  if (interaction.customId !== 'ticket_modal') return;
+
+  const type = pendingTickets.get(interaction.user.id);
+
+  if (!type) {
+    return interaction.reply({ content: '❌ Error.', ephemeral: true });
+  }
 
   // ONE TICKET CHECK
   const existing = await Ticket.findOne({ userId: interaction.user.id });
@@ -83,14 +146,14 @@ client.on('interactionCreate', async interaction => {
     });
   }
 
-  // COUNTER
+  // COUNTER SYSTEM
   let counter = await Counter.findOne({ type });
   if (!counter) counter = await Counter.create({ type, count: 0 });
 
   counter.count++;
   await counter.save();
 
-  const name = `${type}-${counter.count}`;
+  const ticketName = `${type}-${counter.count}`;
 
   let roleId;
   if (type === 'ingame') roleId = process.env.ROLE_SUPPORT;
@@ -98,7 +161,7 @@ client.on('interactionCreate', async interaction => {
   if (type === 'dev') roleId = process.env.ROLE_DEV;
 
   const channel = await interaction.guild.channels.create({
-    name,
+    name: ticketName,
     type: ChannelType.GuildText,
     parent: process.env.CATEGORY_TICKETS,
     permissionOverwrites: [
@@ -115,12 +178,18 @@ client.on('interactionCreate', async interaction => {
     number: counter.count
   });
 
-  // EMBED
+  // FORMAT ANSWERS CLEANLY
+  const answers = interaction.fields.fields.map((f, i) =>
+    `**${i + 1}.** ${f.value}`
+  ).join('\n\n');
+
   const embed = new EmbedBuilder()
     .setColor(0x2b2d31)
+    .setTitle('Support Ticket')
     .setDescription(
       `Hey ${interaction.user},\n\n` +
-      `Welcome to **Grenadier Guard Support**.\nPlease answer the questions below.\n\n` +
+      `Thank you for contacting **Grenadier Guard Support**.\n\n` +
+      `${answers}\n\n` +
       `Please wait patiently for a response.`
     )
     .setFooter({ text: process.env.FOOTER_TEXT });
@@ -131,43 +200,27 @@ client.on('interactionCreate', async interaction => {
     new ButtonBuilder().setCustomId('close').setLabel('Close').setStyle(ButtonStyle.Danger)
   );
 
-  await channel.send({ embeds: [embed], components: [buttons] });
+  await channel.send({
+    content: `${interaction.user} <@&${roleId}>`,
+    embeds: [embed],
+    components: [buttons]
+  });
 
-  // MODAL
-  const modal = new ModalBuilder()
-    .setCustomId(`modal_${type}`)
-    .setTitle('Ticket Questions');
+  pendingTickets.delete(interaction.user.id);
 
-  const input1 = new TextInputBuilder()
-    .setCustomId('q1')
-    .setLabel('Explain your issue')
-    .setStyle(TextInputStyle.Paragraph);
-
-  modal.addComponents(new ActionRowBuilder().addComponents(input1));
-
-  await interaction.showModal(modal);
+  await interaction.reply({
+    content: `✅ Ticket created: ${channel}`,
+    ephemeral: true
+  });
 });
 
-// ===== MODAL =====
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isModalSubmit()) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle('Responses')
-    .setDescription(interaction.fields.getTextInputValue('q1'))
-    .setFooter({ text: process.env.FOOTER_TEXT });
-
-  await interaction.reply({ content: 'Submitted!', ephemeral: true });
-  await interaction.channel.send({ embeds: [embed] });
-});
-
-// ===== BUTTONS =====
+// ================= BUTTONS =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
   const member = interaction.member;
 
-  // CHECK ROLE ACCESS
   const allowed = interaction.channel.permissionOverwrites.cache.some(over =>
     member.roles.cache.has(over.id)
   );
@@ -176,12 +229,10 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: '❌ Not allowed.', ephemeral: true });
   }
 
-  // CLAIM
   if (interaction.customId === 'claim') {
     return interaction.reply(`🪖 ${interaction.user} claimed this ticket.`);
   }
 
-  // ESCALATE
   if (interaction.customId === 'escalate') {
     const menu = new StringSelectMenuBuilder()
       .setCustomId('escalate_select')
@@ -191,13 +242,12 @@ client.on('interactionCreate', async interaction => {
       ]);
 
     return interaction.reply({
-      content: 'Select role:',
+      content: 'Select role to escalate:',
       components: [new ActionRowBuilder().addComponents(menu)],
       ephemeral: true
     });
   }
 
-  // CLOSE
   if (interaction.customId === 'close') {
 
     await interaction.reply('Saving transcript...');
@@ -213,7 +263,8 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ===== ESCALATE SELECT =====
+
+// ================= ESCALATE SELECT =================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId !== 'escalate_select') return;
@@ -224,7 +275,10 @@ client.on('interactionCreate', async interaction => {
     ViewChannel: true
   });
 
-  await interaction.update({ content: 'Escalated.', components: [] });
+  await interaction.update({
+    content: '🔺 Escalated.',
+    components: []
+  });
 });
 
 client.login(process.env.TOKEN);

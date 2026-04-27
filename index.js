@@ -5,7 +5,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers // IMPORTANT for scanning users
+    GatewayIntentBits.GuildMembers
   ]
 });
 
